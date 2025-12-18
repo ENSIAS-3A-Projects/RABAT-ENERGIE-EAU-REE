@@ -168,8 +168,10 @@ const getYearlyComparison = async (req, res) => {
             required: true
           }
         ],
-        group: ['mois', 'Compteur.type'],
-        order: [[literal('mois'), 'ASC'], ['Compteur.type', 'ASC']]
+        // Pour respecter ONLY_FULL_GROUP_BY, on ajoute le PK du compteur au GROUP BY.
+        group: ['mois', 'Compteur.type', 'Compteur.numero_serie'],
+        // On ordonne uniquement par mois ; l'ordre par type n'est pas nécessaire ici.
+        order: [[literal('mois'), 'ASC']]
       });
       
       // Organiser par mois et par type
@@ -386,8 +388,9 @@ const getTrends = async (req, res) => {
           required: true
         }
       ],
-      group: ['mois', 'Compteur.type'],
-      order: [[literal('mois'), 'ASC'], ['Compteur.type', 'ASC']]
+      // Ajout de Compteur.numero_serie pour compatibilité ONLY_FULL_GROUP_BY.
+      group: ['mois', 'Compteur.type', 'Compteur.numero_serie'],
+      order: [[literal('mois'), 'ASC']]
     });
 
     // Organiser par mois et type
@@ -430,11 +433,112 @@ const getTrends = async (req, res) => {
   }
 };
 
+// PDF export pour les tendances de consommation
+const getTrendsPdf = async (req, res) => {
+  // eslint-disable-next-line global-require
+  const PDFDocument = require('pdfkit');
+
+  try {
+    const { year, months = 6 } = req.query;
+    const numMonths = Number(months);
+    const targetYear = Number(year) || new Date().getFullYear();
+
+    const startDate = new Date(targetYear, 0, 1);
+    const endDate = new Date(targetYear + 1, 0, 1);
+
+    // Récupérer les données mensuelles (même logique que getTrends)
+    const rows = await Releve.findAll({
+      attributes: [
+        [fn('MONTH', col('date_releve')), 'mois'],
+        [fn('SUM', col('consommation')), 'totalConsommation']
+      ],
+      where: {
+        date_releve: {
+          [Op.gte]: startDate,
+          [Op.lt]: endDate
+        }
+      },
+      include: [
+        {
+          model: Compteur,
+          attributes: ['type'],
+          required: true
+        }
+      ],
+      group: ['mois', 'Compteur.type', 'Compteur.numero_serie'],
+      order: [[literal('mois'), 'ASC']]
+    });
+
+    // Organiser par mois et type
+    const monthlyData = {};
+    rows.forEach((r) => {
+      const mois = r.get('mois');
+      const type = r.Compteur?.type || 'UNKNOWN';
+      if (!monthlyData[mois]) {
+        monthlyData[mois] = { mois, EAU: 0, ELECTRICITE: 0, total: 0 };
+      }
+      const cons = Number(r.get('totalConsommation') || 0);
+      if (type === 'EAU' || type === 'ELECTRICITE') {
+        monthlyData[mois][type] = cons;
+      }
+      monthlyData[mois].total += cons;
+    });
+
+    const sortedData = Object.values(monthlyData)
+      .sort((a, b) => a.mois - b.mois)
+      .slice(-numMonths);
+
+    // Calculer les tendances
+    const trendTotal = calculateTrend(sortedData.map((d) => ({ total: d.total })));
+    const trendEau = calculateTrend(sortedData.map((d) => ({ totalConsommation: d.EAU })));
+    const trendElectricite = calculateTrend(sortedData.map((d) => ({ totalConsommation: d.ELECTRICITE })));
+
+    const doc = new PDFDocument();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="rapport_tendances_${targetYear}.pdf"`
+    );
+    doc.pipe(res);
+
+    doc.fontSize(18).text(`Rapport des Tendances de Consommation ${targetYear}`, { underline: true });
+    doc.moveDown();
+    doc.fontSize(12).text(`Période analysée: ${numMonths} derniers mois de ${targetYear}`);
+    doc.moveDown();
+
+    // Tendance globale
+    doc.fontSize(14).text('Tendances Globales:', { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`Total: ${trendTotal.trend === 'increasing' ? '↗ Hausse' : trendTotal.trend === 'decreasing' ? '↘ Baisse' : '→ Stable'}`);
+    doc.fontSize(10).text(`Eau: ${trendEau.trend === 'increasing' ? '↗ Hausse' : trendEau.trend === 'decreasing' ? '↘ Baisse' : '→ Stable'}`);
+    doc.fontSize(10).text(`Électricité: ${trendElectricite.trend === 'increasing' ? '↗ Hausse' : trendElectricite.trend === 'decreasing' ? '↘ Baisse' : '→ Stable'}`);
+    doc.moveDown();
+
+    // Données mensuelles
+    doc.fontSize(14).text('Données Mensuelles:', { underline: true });
+    doc.moveDown(0.5);
+    const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+    sortedData.forEach((d) => {
+      doc.fontSize(10).text(
+        `${monthNames[d.mois - 1] || d.mois}: Total=${d.total}, Eau=${d.EAU}, Électricité=${d.ELECTRICITE}`
+      );
+    });
+
+    doc.end();
+    return null;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('ReportsController.getTrendsPdf error:', error);
+    return res.status(500).json({ message: 'Erreur serveur lors de la génération du PDF des tendances' });
+  }
+};
+
 module.exports = {
   getMonthlyReport,
   getYearlyComparison,
   getMonthlyReportPdf,
   getTrends,
+  getTrendsPdf,
   calculateTrend
 };
 

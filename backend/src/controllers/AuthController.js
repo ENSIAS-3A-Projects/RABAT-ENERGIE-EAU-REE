@@ -3,16 +3,43 @@ const jwt = require('jsonwebtoken');
 const { User, LogConnexion } = require('../models');
 const { sendPasswordEmail } = require('../services/emailService');
 
-// Conformément au cahier des charges : durée de session 30 minutes
-const TOKEN_EXPIRATION = '30m';
+// Conformément au cahier des charges : durée de session 10 minutes
+const TOKEN_EXPIRATION = '10m';
 
 function generateRandomPassword(length = 12) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-  let pwd = '';
-  for (let i = 0; i < length; i += 1) {
-    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const digits = '0123456789';
+  const symbols = '!@#$%^&*';
+  const allChars = upper + lower + digits + symbols;
+
+  if (length < 4) {
+    // Longueur minimale pour garantir au moins un caractère de chaque catégorie
+    // On force à 4 si une valeur plus petite est demandée.
+    // eslint-disable-next-line no-param-reassign
+    length = 4;
   }
-  return pwd;
+
+  const picks = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    symbols[Math.floor(Math.random() * symbols.length)]
+  ];
+
+  for (let i = picks.length; i < length; i += 1) {
+    picks.push(allChars[Math.floor(Math.random() * allChars.length)]);
+  }
+
+  // Mélanger le tableau pour éviter que les 4 premiers caractères soient toujours dans le même ordre
+  for (let i = picks.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = picks[i];
+    picks[i] = picks[j];
+    picks[j] = tmp;
+  }
+
+  return picks.join('');
 }
 
 // Fonction pour obtenir l'adresse IP depuis la requête
@@ -332,6 +359,33 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// Fonction pour valider la complexité du mot de passe
+function validatePasswordComplexity(password) {
+  if (password.length < 8) {
+    return { valid: false, message: 'Le mot de passe doit contenir au moins 8 caractères.' };
+  }
+
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasDigit = /[0-9]/.test(password);
+  const hasSymbol = /[!@#$%^&*]/.test(password);
+
+  if (!hasUpper) {
+    return { valid: false, message: 'Le mot de passe doit contenir au moins une lettre majuscule.' };
+  }
+  if (!hasLower) {
+    return { valid: false, message: 'Le mot de passe doit contenir au moins une lettre minuscule.' };
+  }
+  if (!hasDigit) {
+    return { valid: false, message: 'Le mot de passe doit contenir au moins un chiffre.' };
+  }
+  if (!hasSymbol) {
+    return { valid: false, message: 'Le mot de passe doit contenir au moins un symbole (!@#$%^&*).' };
+  }
+
+  return { valid: true };
+}
+
 const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -340,11 +394,10 @@ const changePassword = async (req, res) => {
       return res.status(400).json({ message: 'Le nouveau mot de passe est requis' });
     }
 
-    // Politique minimale de complexité (peut être renforcée si besoin)
-    if (newPassword.length < 8) {
-      return res
-        .status(400)
-        .json({ message: 'Le nouveau mot de passe doit contenir au moins 8 caractères.' });
+    // Validation de la complexité du mot de passe
+    const complexityCheck = validatePasswordComplexity(newPassword);
+    if (!complexityCheck.valid) {
+      return res.status(400).json({ message: complexityCheck.message });
     }
 
     const userId = req.user?.id_user;
@@ -357,18 +410,17 @@ const changePassword = async (req, res) => {
       return res.status(404).json({ message: 'Utilisateur introuvable' });
     }
 
-    // Si l'utilisateur n'est pas en "première connexion", on exige l'ancien mot de passe
-    if (!user.must_change_password) {
-      if (!currentPassword) {
-        return res
-          .status(400)
-          .json({ message: 'Le mot de passe actuel est requis pour le changement.' });
-      }
+    // Exiger le mot de passe actuel même pour la première connexion (sécurité renforcée)
+    // Cela prouve que l'utilisateur possède les credentials envoyés par email
+    if (!currentPassword) {
+      return res
+        .status(400)
+        .json({ message: 'Le mot de passe actuel est requis pour le changement (y compris lors de la première connexion).' });
+    }
 
-      const isMatch = await bcrypt.compare(currentPassword, user.password);
-      if (!isMatch) {
-        return res.status(401).json({ message: 'Mot de passe actuel incorrect.' });
-      }
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Mot de passe actuel incorrect.' });
     }
 
     const hashed = await bcrypt.hash(newPassword, 10);

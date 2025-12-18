@@ -4,6 +4,8 @@ import api from '../services/api';
 function DashboardCompteurs() {
   const [compteurs, setCompteurs] = useState([]);
   const [adresses, setAdresses] = useState([]);
+  const [adressesSansCompteur, setAdressesSansCompteur] = useState([]);
+  const [quartiers, setQuartiers] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -18,6 +20,8 @@ function DashboardCompteurs() {
   const [submitting, setSubmitting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [filterQuartier, setFilterQuartier] = useState('');
+  const [searchAdresse, setSearchAdresse] = useState('');
 
   const loadCompteurs = async () => {
     setLoading(true);

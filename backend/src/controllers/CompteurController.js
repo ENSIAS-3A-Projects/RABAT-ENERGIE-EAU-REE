@@ -4,6 +4,7 @@ const {
   Client,
   Quartier
 } = require('../models');
+const { sequelize } = require('../config/database');
 
 async function countCompteursForAdresse(id_adresse) {
   const count = await Compteur.count({ where: { id_adresse } });
@@ -102,12 +103,69 @@ const createCompteur = async (req, res) => {
     }
 
     let numeroSerieFinal = numero_serie;
+    
+    // Si aucun numéro de série fourni, générer un nouveau avec gestion de la concurrence
     if (!numeroSerieFinal) {
-      const maxExisting = await Compteur.max('numero_serie');
-      const next = (Number(maxExisting || 0) || 0) + 1;
-      numeroSerieFinal = String(next).padStart(9, '0');
+      const maxRetries = 5;
+      let retries = 0;
+      let created = false;
+      let compteur = null;
+
+      while (retries < maxRetries && !created) {
+        const transaction = await sequelize.transaction();
+        
+        try {
+          // Utiliser une transaction pour garantir l'atomicité
+          const maxExisting = await Compteur.max('numero_serie', { transaction });
+          const next = (Number(maxExisting || 0) || 0) + 1;
+          numeroSerieFinal = String(next).padStart(9, '0');
+
+          // Vérifier si le numéro existe déjà (protection contre les races)
+          const existing = await Compteur.findByPk(numeroSerieFinal, { transaction });
+          if (existing) {
+            await transaction.rollback();
+            retries += 1;
+            // Attendre un peu avant de réessayer
+            await new Promise((resolve) => setTimeout(resolve, 50 * retries));
+            continue;
+          }
+
+          // Créer le compteur dans la transaction
+          compteur = await Compteur.create({
+            numero_serie: numeroSerieFinal,
+            type,
+            id_adresse,
+            id_client,
+            index_actuel: 0
+          }, { transaction });
+
+          await transaction.commit();
+          created = true;
+        } catch (error) {
+          await transaction.rollback();
+          
+          // Si c'est une erreur de contrainte unique, réessayer
+          if (error.name === 'SequelizeUniqueConstraintError' || error.code === 'ER_DUP_ENTRY') {
+            retries += 1;
+            await new Promise((resolve) => setTimeout(resolve, 50 * retries));
+            continue;
+          }
+          
+          // Autre erreur, la propager
+          throw error;
+        }
+      }
+
+      if (!created) {
+        return res.status(500).json({ 
+          message: 'Impossible de générer un numéro de série unique après plusieurs tentatives' 
+        });
+      }
+
+      return res.status(201).json(compteur);
     }
 
+    // Si un numéro de série est fourni, vérifier qu'il n'existe pas déjà
     const existing = await Compteur.findByPk(numeroSerieFinal);
     if (existing) {
       return res.status(400).json({ message: 'Un compteur avec ce numéro de série existe déjà' });

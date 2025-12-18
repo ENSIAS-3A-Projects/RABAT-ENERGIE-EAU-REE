@@ -8,6 +8,7 @@ router.get('/monthly', verifyToken, ReportsController.getMonthlyReport);
 router.get('/yearly-comparison', verifyToken, ReportsController.getYearlyComparison);
 router.get('/monthly.pdf', verifyToken, ReportsController.getMonthlyReportPdf);
 router.get('/trends', verifyToken, ReportsController.getTrends);
+router.get('/trends.pdf', verifyToken, ReportsController.getTrendsPdf);
 
 module.exports = router;
 

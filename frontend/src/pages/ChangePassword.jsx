@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 function ChangePassword() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -39,6 +41,7 @@ function ChangePassword() {
       // Forcer une reconnexion propre après changement de mot de passe
       setTimeout(() => {
         logout();
+        navigate('/login');
       }, 2000);
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -119,6 +122,7 @@ function ChangePassword() {
 }
 
 export default ChangePassword;
+
 
 
 

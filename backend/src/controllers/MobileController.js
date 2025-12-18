@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { Agent, Quartier, Adresse, Compteur, Releve, Client } = require('../models');
+const { sendConsommationToFacturation } = require('../services/facturationService');
 
 // Liste des adresses/compteurs non relevés pour un agent (pour l'app mobile)
 const getTournees = async (req, res) => {
@@ -91,12 +92,32 @@ const createReleveMobile = async (req, res) => {
     }
 
     const ancien_index = compteur.index_actuel || 0;
+    const nouvel_index_num = Number(nouvel_index);
+    const ancien_index_num = Number(ancien_index);
 
-    if (Number(nouvel_index) < Number(ancien_index)) {
-      return res.status(400).json({ message: 'nouvel_index doit être supérieur ou égal à ancien_index' });
+    // Détection du rollover du compteur (ex: 99999 -> 00001)
+    // On considère un rollover si l'ancien index est proche d'une valeur maximale typique
+    // et que le nouvel index est beaucoup plus petit
+    const METER_MAX_THRESHOLD = 99999; // Seuil pour détecter un compteur proche du maximum
+    const ROLLOVER_THRESHOLD = 1000; // Si la différence est très grande, c'est probablement un rollover
+
+    let consommation;
+    if (nouvel_index_num < ancien_index_num) {
+      // Possible rollover : vérifier si l'ancien index est proche du max
+      if (ancien_index_num >= METER_MAX_THRESHOLD - ROLLOVER_THRESHOLD) {
+        // Rollover détecté : consommation = (MAX - ancien) + nouvel
+        // On utilise METER_MAX_THRESHOLD comme valeur max approximative
+        consommation = (METER_MAX_THRESHOLD - ancien_index_num) + nouvel_index_num;
+      } else {
+        // Pas un rollover, c'est une erreur
+        return res.status(400).json({ 
+          message: 'nouvel_index doit être supérieur ou égal à ancien_index (sauf en cas de rollover du compteur)' 
+        });
+      }
+    } else {
+      // Cas normal : consommation = nouveau - ancien
+      consommation = nouvel_index_num - ancien_index_num;
     }
-
-    const consommation = Number(nouvel_index) - Number(ancien_index);
 
     const releve = await Releve.create({
       date_releve: new Date(),
@@ -109,6 +130,20 @@ const createReleveMobile = async (req, res) => {
 
     compteur.index_actuel = nouvel_index;
     await compteur.save();
+
+    // Simulation appel ERP Facturation via endpoint mock (non bloquante)
+    try {
+      await sendConsommationToFacturation({
+        numero_serie,
+        consommation,
+        date_releve: releve.date_releve,
+        id_client: compteur.id_client,
+        authorization: req.headers.authorization || ''
+      });
+    } catch (factError) {
+      // eslint-disable-next-line no-console
+      console.warn('Erreur lors de l\'appel mock facturation (non bloquant):', factError.message);
+    }
 
     return res.status(201).json({
       success: true,

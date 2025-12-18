@@ -17,6 +17,7 @@ const integrationRoutes = require('./routes/integration.routes');
 const clientsRoutes = require('./routes/clients.routes');
 const mobileRoutes = require('./routes/mobile.routes');
 const mockRoutes = require('./routes/mock.routes');
+const aiRoutes = require('./routes/ai.routes');
 
 const app = express();
 
@@ -41,6 +42,7 @@ app.use('/api/integration', integrationRoutes);
 app.use('/api/clients', clientsRoutes);
 app.use('/api/mobile', mobileRoutes);
 app.use('/api/mock', mockRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Start server after DB connection
 const PORT = process.env.PORT || 3000;

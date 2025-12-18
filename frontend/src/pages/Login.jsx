@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-function Login({ onLoginSuccess }) {
-  const { login } = useAuth();
+function Login() {
+  const { login, user } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('admin@ree.ma');
   const [password, setPassword] = useState('password123');
   const [submitting, setSubmitting] = useState(false);
@@ -14,9 +16,9 @@ function Login({ onLoginSuccess }) {
     setSubmitting(true);
     try {
       await login(email, password);
-      if (onLoginSuccess) {
-        onLoginSuccess();
-      }
+      // Navigation will be handled by App.jsx based on user state
+      // Navigate to dashboard - App.jsx will redirect to change-password if needed
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(err);

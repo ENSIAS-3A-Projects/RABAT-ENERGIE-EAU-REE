@@ -22,7 +22,8 @@ function DashboardAdmins() {
   const [adminForm, setAdminForm] = useState({
     nom: '',
     prenom: '',
-    email: ''
+    email: '',
+    role: 'USER'
   });
   const [adminSubmitting, setAdminSubmitting] = useState(false);
   const [adminSuccess, setAdminSuccess] = useState('');
@@ -109,10 +110,11 @@ function DashboardAdmins() {
         nom: adminForm.nom,
         prenom: adminForm.prenom,
         email: adminForm.email,
-        role: 'SUPERADMIN'
+        role: adminForm.role
       });
       setAdminSuccess("Admin créé et email envoyé (simulation MailHog).");
-      setAdminForm({ nom: '', prenom: '', email: '' });
+      setAdminForm({ nom: '', prenom: '', email: '', role: 'USER' });
+      setShowAdminModal(false);
       await Promise.all([loadAdmins(), loadUsers()]);
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -483,6 +485,21 @@ function DashboardAdmins() {
                   onChange={handleAdminInputChange}
                   className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1" htmlFor="role">
+                  Rôle
+                </label>
+                <select
+                  id="role"
+                  name="role"
+                  value={adminForm.role}
+                  onChange={handleAdminInputChange}
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="USER">USER (Admin Backoffice)</option>
+                  <option value="SUPERADMIN">SUPERADMIN</option>
+                </select>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button
